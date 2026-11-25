@@ -1237,6 +1237,23 @@ body.dk .hero-pro-r{display:flex}
   border-color:#ffffff!important;
   box-shadow:0 0 0 2.5px #ffffff,0 14px 34px color-mix(in srgb,var(--pr) 48%,rgba(15,23,42,.26))!important;
 }
+.ucard.ucard-focus{
+  border-color:var(--pr)!important;
+  box-shadow:0 0 0 2.5px var(--pr),0 14px 34px var(--halo)!important;
+  animation:ucardFocusPulse 1.4s ease-in-out 3;
+}
+@keyframes ucardFocusPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.015)}}
+.ncard.k-novo_usuario{border-left:4px solid var(--pr);cursor:pointer;transition:transform .14s,border-color .2s}
+.ncard.k-novo_usuario:hover{transform:translateY(-1px);border-color:var(--pr)}
+.wlc-plan-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:2px}
+.wlc-plan-btn{all:unset;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:10px 6px;border-radius:14px;border:1px solid var(--gb);background:color-mix(in srgb,var(--cd) 72%,transparent);color:var(--tx);cursor:pointer;text-align:center;transition:transform .14s,border-color .18s,background .18s}
+.wlc-plan-btn:hover,.wlc-plan-btn.best{border-color:var(--pr);background:color-mix(in srgb,var(--pr) 16%,var(--cd))}
+.wlc-plan-btn:active{transform:scale(.96)}
+.wlc-plan-btn b{font-size:.82rem;line-height:1.15}
+.wlc-plan-btn small{font-size:.68rem;color:var(--mu);line-height:1.15}
+.plan-trial-banner{padding:11px 14px;border-radius:16px;margin:0 0 12px;border:1px solid color-mix(in srgb,var(--pr) 48%,transparent);background:linear-gradient(135deg,color-mix(in srgb,var(--pr) 18%,var(--cd)),color-mix(in srgb,var(--pr) 8%,var(--cd)));display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.plan-trial-banner b{display:block;font-size:.86rem;color:var(--tx)}
+.plan-trial-banner small{display:block;font-size:.76rem;color:var(--mu);margin-top:2px}
 .wk-modal-list{display:flex;flex-direction:column;gap:8px;margin:12px 0}
 .wk-modal-it{
   all:unset;box-sizing:border-box;width:100%;padding:12px 14px;border-radius:14px;
@@ -3567,7 +3584,8 @@ if(syncedWa&&!isValidBrPhone(pf.whatsapp)){
   sbq('/rest/v1/profiles?id=eq.'+c.uid,{method:'PATCH',h:{Prefer:'return=minimal'},body:JSON.stringify({whatsapp:syncedWa})}).catch(()=>{});
 }
 S('enf_user',{...curU,n:pf.nome||gName||c.em.split('@')[0],e:c.em||curU.e||'',wa:syncedWa||curU.wa||''});
-await sbup(1);if(typeof loadBrandLogosRemote==='function')loadBrandLogosRemote();go();rt();
+await sbup(1);if(typeof loadBrandLogosRemote==='function')loadBrandLogosRemote();if(typeof checkAppUpdate==='function')setTimeout(()=>checkAppUpdate(false),1200);go();rt();
+if(window._pendingOpenUserId&&isMaster()){const _ou=window._pendingOpenUserId;window._pendingOpenUserId='';setTimeout(()=>openNotifUser('',_ou,''),250)}
 const shouldWelcome=!!(newAccount||accountIsNew(j.user));
 setTimeout(()=>checkPostLoginGates(shouldWelcome),350)}
 async function lg(m){const g=i=>($(i)||{}).value||'',em=g('#e').trim(),pw=g('#p'),nm=g('#n').trim(),wa=fmtBrPhone(g('#w')),c=SB();
@@ -3719,6 +3737,7 @@ const reg=await navigator.serviceWorker.ready,kr=await sbq('/functions/v1/push?a
 let sb=await reg.pushManager.getSubscription();if(!sb)sb=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:u8(kj.key)});
 const j=sb.toJSON(),rr=await sbq('/rest/v1/rpc/claim_push',{method:'POST',body:JSON.stringify({p_endpoint:j.endpoint,p_p256dh:j.keys.p256dh,p_auth:j.keys.auth,p_tz:Intl.DateTimeFormat().resolvedOptions().timeZone})});if(!rr.ok)throw new Error(await rr.text());
 S('enf_push',1);if(typeof syncShiftsToSw==='function')syncShiftsToSw();if(!q){if(typeof playNotifSound==='function')playNotifSound('notif');alert('Notificações sonoras ativadas! Elas chegam mesmo com o app fechado.');render()}}catch(e){if(!q)sbe(e)}}
+async function pushDeviceIsActive(){try{const c=SB();if(!c.tok||!('serviceWorker'in navigator)||!('PushManager'in window)||!('Notification'in window)||Notification.permission!=='granted')return false;const reg=await navigator.serviceWorker.ready,sub=await reg.pushManager.getSubscription();if(!sub)return false;const r=await sbq('/rest/v1/push_subscriptions?select=endpoint&endpoint=eq.'+encodeURIComponent(sub.endpoint));if(!r.ok)return false;const rows=await r.json();return Array.isArray(rows)&&rows.some(x=>x.endpoint===sub.endpoint)}catch(e){return false}}
 async function pushTest(){try{if(typeof playNotifSound==='function')playNotifSound('notif');const q=await sbq('/functions/v1/push?action=test',{method:'POST',body:'{}'}),j=await q.json();if(!q.ok)throw new Error(j.error||'erro');alert(j.enviadas?'Teste enviado! A notificação deve aparecer com som em instantes.':'Nenhum aparelho ativo. Confira as permissões em Ajustes.')}catch(e){sbe(e)}}
 async function pushOff(){const c=JSON.parse(JSON.stringify(SB()));try{const r=await navigator.serviceWorker.ready,x=await r.pushManager.getSubscription();if(x){if(c.tok)await fetch(c.url+'/rest/v1/push_subscriptions?endpoint=eq.'+encodeURIComponent(x.endpoint),{method:'DELETE',headers:sbh(c,c.tok)});await x.unsubscribe()}}catch(e){}localStorage.removeItem('enf_push');render()}
 const _ss=sess;sess=async function(j,rec){await _ss(j,rec);if(!rec&&'Notification' in window&&Notification.permission=='granted')pushOn(1)};
@@ -3937,7 +3956,10 @@ try{navigator.serviceWorker.addEventListener('message',e=>{
   const d=e.data||{};
   if(d.playSound&&typeof playNotifSound==='function')playNotifSound(d.t=='med'?'alarm':'notif');
   if(d.t=='med')medCheck();
-  else if(d.t=='open'&&String(d.url||'').includes('tab=plantoes')){
+  else if(d.t=='open'&&String(d.url||'').includes('open_user=')){
+    const u=new URL(d.url,location.origin),uid=u.searchParams.get('open_user');
+    if(uid&&typeof openNotifUser==='function')openNotifUser('',uid,'');
+  }else if(d.t=='open'&&String(d.url||'').includes('tab=plantoes')){
     const u=new URL(d.url,location.origin),pd=u.searchParams.get('pdate');
     if(pd&&typeof focusPlantDate==='function')focusPlantDate(pd);
     else{tab='plantoes';render()}
@@ -4041,9 +4063,9 @@ async function permGo(){
 function permSkip(){S('enf_perm',1);const o=$('#pms');if(o)o.remove()}
 function toggleSndPref(v){S('enf_snd_on',v?1:0);if(v){unlockAppAudio(true)}syncShiftsToSw();snack(v?'Som de notificações e alarmes ativado ✓':'Som silenciado');if(tab=='cfg')permSt()}
 function togglePrevNtf(v){S('enf_prev_ntf',v?1:0);syncShiftsToSw();snack(v?'Aviso 1 dia antes do plantão ativado ✓':'Aviso 1 dia antes desativado');if(tab=='cfg')permSt()}
-async function permSt(){const w=$('#pm');if(!w)return;const nt='Notification' in window?Notification.permission:null,cam=await queryPermState('camera'),mic=await queryPermState('microphone'),pers=navigator.storage&&navigator.storage.persisted?(await navigator.storage.persisted().catch(()=>false)):false,pushOk=!!(nt=='granted'&&L('enf_push',0)),sndOn=L('enf_snd_on',1)!==0,prevOn=L('enf_prev_ntf',1)!==0,lb={granted:'Permitido ✓',denied:'Bloqueado',prompt:'Não definido',default:'Não definido'},
+async function permSt(){const w=$('#pm');if(!w)return;const nt='Notification' in window?Notification.permission:null,cam=await queryPermState('camera'),mic=await queryPermState('microphone'),pers=navigator.storage&&navigator.storage.persisted?(await navigator.storage.persisted().catch(()=>false)):false,pushOk=await pushDeviceIsActive(),sndOn=L('enf_snd_on',1)!==0,prevOn=L('enf_prev_ntf',1)!==0,lb={granted:'Permitido ✓',denied:'Bloqueado',prompt:'Não definido',default:'Não definido'},
 li=(t,v,d,custom)=>`<div class="pmr"><span><b>${t}</b><small>${d}</small></span><span class="${custom?custom.cls:(v=='granted'?'pg':v=='denied'?'dv':'mu')}">${custom?custom.tx:(v?(lb[v]||v):'—')}</span></div>`;
-const pushInfo=pushOk?{cls:'pg',tx:'Ativo (app fechado) ✓'}:(nt=='denied'?{cls:'dv',tx:'Bloqueado'}:{cls:'mu',tx:SB().tok?'Clique para ativar':'Entre na conta'});
+const pushInfo=pushOk?{cls:'pg',tx:'Ativo (app fechado) ✓'}:(nt=='denied'?{cls:'dv',tx:'Bloqueado'}:{cls:'mu',tx:SB().tok?'Não ativado neste aparelho':'Entre na conta'});
 const allOk=nt==='granted'&&(cam==='granted'||cam===null)&&(mic==='granted'||mic===null);
 w.innerHTML=`${allOk?'<p class="pg" style="margin:0 0 8px;font-size:.8rem;font-weight:800">✓ Permissões principais já concedidas — não solicitaremos novamente.</p>':''}`
 +li('Notificações do aparelho',nt,'Plantões, contas e medicamentos')
@@ -4394,9 +4416,11 @@ async function loadNotifs(showToast){
       if(showToast){
         const newest=mine.find(r=>!r.read_at&&!prevIds.has(String(r.id)));
         if(newest){
+          if(typeof playNotifSound==='function')playNotifSound('notif');
           snack('🔔 '+newest.title);
           if('Notification' in window&&Notification.permission=='granted'){
-            try{navigator.serviceWorker.ready.then(reg=>reg.showNotification(newest.title,{body:newest.body,icon:'/icon-192.png'})).catch(()=>{})}catch(e){}
+            const notifUrl=newest.target_user_id?('/?open_user='+encodeURIComponent(newest.target_user_id)):'/';
+            try{navigator.serviceWorker.ready.then(reg=>reg.showNotification(newest.title,{body:newest.body,icon:'/icon-192.png',badge:'/icon-192.png',renotify:true,tag:'un_'+newest.id,data:{url:notifUrl}})).catch(()=>{})}catch(e){}
           }
         }
       }
@@ -4419,6 +4443,19 @@ async function markNotifRead(id){
   if($('#ntf_box'))renderNotifCenter();
   render();
 }
+function openNotifUser(notifId,targetUid,emailHint){
+  if(notifId)markNotifRead(notifId);
+  cm();
+  if(!isMaster()){tab='home';render();return}
+  window._admTab='usuarios';
+  window._admQ='';
+  window._admSt='todos';
+  window._admFocusUid=String(targetUid||'').trim();
+  window._admFocusEmail=String(emailHint||'').trim().toLowerCase();
+  tab='adm';
+  render();
+  scrollTo(0,0);
+}
 function openNotifCenter(){
   const m=document.createElement('div');m.className='m';m.id='mm';m.onclick=e=>{if(e.target===m)cm()};
   m.innerHTML='<div id="ntf_box"></div>';document.body.appendChild(m);
@@ -4431,12 +4468,17 @@ function renderNotifCenter(){
   ${un?'<button class="b ghost" style="margin:8px 0" onclick="markNotifRead(\'all\')">Marcar todas como lidas</button>':''}
   ${list.length?list.map(n=>{
     const isPay=n.kind=='fatura'||n.kind=='vencimento'||n.kind=='bloqueio';
-    return `<div class="ncard k-${esc(n.kind||'info')} ${n.read_at?'':'unread'}">
+    const emMatch=String(n.body||'').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    const targetUid=String(n.target_user_id||'');
+    const emailHint=emMatch?emMatch[0]:'';
+    const isNewUser=isMaster()&&(n.kind=='novo_usuario'||!!targetUid||/novo usu[aá]rio/i.test(String(n.title||'')));
+    return `<div class="ncard k-${esc(n.kind||'info')} ${n.read_at?'':'unread'}" ${isNewUser?`onclick="openNotifUser('${esc(n.id)}','${esc(targetUid)}','${esc(emailHint)}')"`:''}>
       <div class="ncard-h"><b>${esc(n.title)}</b><small>${fmtTs(n.created_at)}</small></div>
       <p>${esc(n.body)}</p>
       ${(n.amount||n.due_date)?`<div class="ncard-meta">${n.amount?`<span class="ncard-pill">Valor: ${R(n.amount)}</span>`:''}${n.due_date?`<span class="ncard-pill">Vencimento: ${D(n.due_date)}</span>`:''}</div>`:''}
       ${isPay&&pix?`<div class="pix-box"><small class="mu">Chave Pix para pagamento${cfg.billing.adminName?' · '+esc(cfg.billing.adminName):''}</small><div class="pix-key">${esc(pix)}</div></div>`:''}
-      <div class="ncard-act">
+      <div class="ncard-act" ${isNewUser?'onclick="event.stopPropagation()"':''}>
+        ${isNewUser?`<button class="pri" onclick="openNotifUser('${esc(n.id)}','${esc(targetUid)}','${esc(emailHint)}')">Ver usuário →</button>`:''}
         ${isPay&&cardUrl?`<button class="pri" onclick="openExt('${esc(cardUrl)}')">💳 Pagar no cartão</button>`:''}
         ${isPay&&pix?`<button class="${cardUrl?'':'pri'}" onclick="copyAdmPix()">Copiar Pix</button>`:''}
         ${isPay?`<button onclick="cm();tab='plano';render();scrollTo(0,0)">Ver planos</button>`:''}
@@ -4508,7 +4550,7 @@ lp=async function(){
   }
 };
 
-/* ----- Realtime estendido para user_notifications e profiles ----- */
+/* ----- Realtime estendido para user_notifications, profiles, app_config e app_releases ----- */
 rt=async function(){
   let c=SB();if(!c.tok||!c.auto||ws)return;
   try{await sbq('/auth/v1/user')}catch(e){return}
@@ -4518,7 +4560,9 @@ rt=async function(){
     ws.send(JSON.stringify({topic:'realtime:enfapp',event:'phx_join',payload:{config:{postgres_changes:[
       {event:'*',schema:'public',table:'app_data',filter:'user_id=eq.'+c.uid},
       {event:'*',schema:'public',table:'user_notifications',filter:'user_id=eq.'+c.uid},
-      {event:'UPDATE',schema:'public',table:'profiles',filter:'id=eq.'+c.uid}
+      {event:'UPDATE',schema:'public',table:'profiles',filter:'id=eq.'+c.uid},
+      {event:'*',schema:'public',table:'app_config'},
+      {event:'*',schema:'public',table:'app_releases'}
     ]},access_token:c.tok},ref:'1'}));
     hb=setInterval(()=>ws&&ws.readyState==1&&ws.send(JSON.stringify({topic:'phoenix',event:'heartbeat',payload:{},ref:'2'})),25000);
   };
@@ -4534,6 +4578,11 @@ rt=async function(){
         await loadNotifs(true);if(ld())render();
       }else if(tbl=='profiles'&&x&&x.id==SB().uid){
         await lp();if(ld())render();snack('Sua conta ou plano foi atualizado');
+      }else if(tbl=='app_config'){
+        if(typeof loadBrandLogosRemote==='function')loadBrandLogosRemote();
+        if(x&&x.key==='app_release'&&typeof checkAppUpdate==='function'){window._updPromptedVer='';checkAppUpdate(false)}
+      }else if(tbl=='app_releases'){
+        if(typeof checkAppUpdate==='function'){window._updPromptedVer='';checkAppUpdate(false)}
       }
     }catch(e){}
   };
@@ -4603,15 +4652,20 @@ function planoV(){
           ${master
             ? `<button class="b" onclick="window._admTab='planos';tab='adm';render();scrollTo(0,0)">Editar valores, links e limites</button>`
             : `<button class="b" onclick="openPlanCheckout('${key}',false)">${ctaLabel}</button>
-               ${(!isCur&&!p.trial_started_at&&pl.trial>0)?`<button type="button" class="plan-tr" onclick="openPlanCheckout('${key}',true)">Testar ${pl.trial} dias grátis</button>`:''}`}
+               ${(!p.trial_started_at&&pl.trial>0)?`<button type="button" class="plan-tr" onclick="openPlanCheckout('${key}',true)">Testar ${pl.trial} dias grátis</button>`:(isInFreeTrial(p)&&!isCur?`<button type="button" class="plan-tr" onclick="switchTrialPlan('${key}')">Testar ${esc(pl.n)} grátis (nos 7 dias)</button>`:'')}`}
         </div>
       </div>
     </div>`;
   }).join('');
 
   const mpBanner=renderMpReturnBanner();
+  const trialLeft=isInFreeTrial(p)?Math.max(0,dd(p.plan_expires_at)):0;
+  const trialBanner=isInFreeTrial(p)
+    ? `<div class="plan-trial-banner"><div><b>🎁 7 dias grátis em qualquer plano · ${trialLeft} dia(s) restante(s)</b><small>Você pode alternar livremente entre Básico, Profissional e Premium durante seu período de avaliação até ${D(p.plan_expires_at)}.</small></div></div>`
+    : (!master&&!p.trial_started_at?`<div class="plan-trial-banner"><div><b>🎁 Todo novo usuário tem 7 dias grátis em qualquer plano</b><small>Escolha Básico, Profissional ou Premium abaixo para testar gratuitamente por 7 dias.</small></div></div>`:'');
   return `<div class="plan-top"><h1>Planos</h1>${master?`<button class="chip on" onclick="tab='adm';render();scrollTo(0,0)">Painel ADM</button>`:''}</div>
   ${mpBanner}
+  ${trialBanner}
   ${k?`<div class="al">🔒 ${esc(TN[k]||k)} faz parte do plano Premium. Escolha abaixo para liberar agora.</div>`:''}
   <div class="plan-me">
     <div class="plan-me-r">
@@ -5151,20 +5205,45 @@ async function saveRequiredContact(){
   }
 }
 
+function isInFreeTrial(p){
+  const u=p||prof();
+  return !!(u&&u.role!=='master'&&u.status==='teste'&&u.plan_expires_at&&dd(u.plan_expires_at)>=0);
+}
+async function switchTrialPlan(planKey){
+  const c=SB();
+  if(!c.tok||!c.uid){uiAlert('Entre na sua conta para continuar.','Planos');return}
+  try{
+    const q=await sbq('/rest/v1/rpc/user_change_plan',{method:'POST',body:JSON.stringify({p_plan:planKey,p_cycle:'mensal',p_trial:true})});
+    if(!q.ok){
+      const detail=await q.text();
+      throw new Error(detail.includes('teste gratuito ja utilizado')?'Seu período de 7 dias grátis já foi encerrado.':detail.includes('conta bloqueada')?'Sua conta está bloqueada.':'Não foi possível ativar o teste gratuito neste plano.');
+    }
+    setOnboardingChoice('trial_'+planKey);
+    await lp();
+    await loadNotifs(false);
+    window._lk='';
+    cm();
+    render();
+    const nm=(getPCfg().plans[planKey]?.n)||planKey;
+    snack('7 dias grátis ativos no plano '+nm+' ✓');
+  }catch(e){
+    uiAlert((e&&e.message)||'Não foi possível alterar o plano de teste.','7 dias grátis');
+  }
+}
 function setOnboardingChoice(choice){S('enf_onboarding_v1',{choice,at:new Date().toISOString()})}
 function showNewUserWelcome(){
-  const p=prof();if(!ld()||needsContactCompletion()||L('enf_onboarding_v1',null)||p.role=='master'||p.plan!='basico'||p.trial_started_at)return;
+  const p=prof();if(!ld()||needsContactCompletion()||L('enf_onboarding_v1',null)||p.role=='master')return;
+  if(p.trial_started_at&&!isInFreeTrial(p))return;
   if($('#mm'))cm();
   const cfg=getPCfg(),pl=cfg.plans.premium||{n:'Premium',badge:'VIP · TUDO LIBERADO',price:49.9,trial:7,sub:'Relatórios e fichas ilimitados, Mercado inteligente e backup na nuvem.',rel:null,fichas:null};
   const trialDays=pl.trial||7;
   const fLim=n=>n==null?'Ilimitados':n+' cadastros';
   const fRel=n=>n==null?'Ilimitados':n+' relatórios';
   const feats=[
-    'Plantões, horários, saldo em tempo real e documentos',
-    'Medicamentos com alarmes, Homecares, Despesas e Financeiro',
-    'Relatórios: '+fRel(pl.rel),
-    'Produtividade (editor de PDF): '+fLim(pl.fichas),
-    'Mercado inteligente (voz + código de barras) + nuvem'
+    '7 dias grátis disponíveis em qualquer plano (Básico, Profissional ou Premium)',
+    'Plantões, horários, saldo em tempo real, medicamentos e documentos',
+    'Relatórios: '+fRel(pl.rel)+' · Produtividade PDF: '+fLim(pl.fichas),
+    'Troque livremente entre os planos durante seus '+trialDays+' dias grátis'
   ];
   const m=document.createElement('div');
   m.className='m wlc-ov';
@@ -5185,34 +5264,36 @@ function showNewUserWelcome(){
         <div class="plan-id">
           <span class="plan-ico"><svg viewBox="0 0 24 24" aria-hidden="true">${P_ICO.premium}</svg></span>
           <div>
-            <span class="plan-nm" id="wlc_title">${esc(pl.n)}</span>
-            <span class="plan-tag">${esc(pl.badge||'VIP · TUDO LIBERADO')}</span>
+            <span class="plan-nm" id="wlc_title">${trialDays} dias grátis</span>
+            <span class="plan-tag">EM QUALQUER PLANO</span>
           </div>
         </div>
-        <span class="plan-cur-pill">${trialDays} dias grátis</span>
+        <span class="plan-cur-pill">Grátis · ${trialDays}d</span>
       </div>
       <div class="wlc-trial-box">
         <div>
-          <b>${trialDays} dias grátis</b>
-          <small>Experimente todos os recursos do plano Premium</small>
-        </div>
-        <div class="wlc-trial-price">
-          <span>Depois, se quiser continuar</span>
-          <strong>${R(+pl.price||49.9)}/30 dias</strong>
+          <b>Escolha qualquer plano para testar</b>
+          <small>Experimente Básico, Profissional ou Premium grátis por ${trialDays} dias</small>
         </div>
       </div>
-      <p class="plan-sub" style="margin:0">${esc(pl.sub||'Relatórios e fichas ilimitados, Mercado inteligente e backup na nuvem.')}</p>
       <ul class="plan-feats">${feats.map(tx=>`<li>${CHK_SVG}<span>${esc(tx)}</span></li>`).join('')}</ul>
+      <div class="wlc-plan-grid">
+        ${PLAN_KEYS.map(k=>{const pk=cfg.plans[k];return `<button type="button" class="wlc-plan-btn ${k=='premium'?'best':''}" onclick="startWelcomeTrial('${k}')"><b>${esc(pk.n)}</b><small>${R(+pk.price||0)}/mês</small></button>`}).join('')}
+      </div>
       <div class="wlc-btns">
-        <button type="button" class="b" onclick="startWelcomeTrial()">Começar ${trialDays} dias grátis do Premium</button>
-        <button type="button" class="b ghost" onclick="chooseWelcomePaid()">Ver todos os planos e contratar</button>
+        <button type="button" class="b" onclick="startWelcomeTrial('premium')">Começar ${trialDays} dias grátis no Premium</button>
+        <button type="button" class="b ghost" onclick="chooseWelcomePaid()">Ver detalhes de todos os planos</button>
       </div>
     </div>
   </div>`;
   document.body.classList.add('nosc');
   document.body.appendChild(m);
 }
-function startWelcomeTrial(){cm();window._pcyc='mensal';openPlanCheckout('premium',true)}
+function startWelcomeTrial(planKey){
+  const key=planKey||'premium';
+  if(isInFreeTrial(prof())){switchTrialPlan(key);return}
+  cm();window._pcyc='mensal';openPlanCheckout(key,true);
+}
 async function chooseWelcomePaid(){setOnboardingChoice('paid_selection');await sbup(1);cm();tab='plano';window._lk='';render();scrollTo(0,0)}
 function sendProofWa(planKey){
   const cfg=getPCfg(),pl=cfg.plans[planKey],cyc=window._pcyc||'mensal',u=L('enf_user',{}),p=prof();
@@ -5661,6 +5742,8 @@ function renderAdmUsers(w){
     const ms=stF=='todos'||(stF=='ativo'&&(st=='ativo'||st=='master'))||(stF=='teste'&&st=='teste')||(stF=='vencido'&&(st=='vencido'||(u.plan_expires_at&&dd(u.plan_expires_at)<=5&&dd(u.plan_expires_at)>=0)))||(stF=='bloqueado'&&st=='bloqueado');
     return mq&&ms;
   });
+  const focUid=String(window._admFocusUid||'').trim();
+  const focEmail=String(window._admFocusEmail||'').trim().toLowerCase();
   w.innerHTML=`<div class="adm-kpis">
     <div class="k"><small>Total</small><b>${cnt.tot}</b></div>
     <div class="k"><small>Ativos</small><b class="pg">${cnt.at}</b></div>
@@ -5673,10 +5756,11 @@ function renderAdmUsers(w){
   ${list.length?list.map(u=>{
     const st=userSt(u),isM=u.role=='master',plName=isM?'Master':(cfg.plans[u.plan]?.n||PL[u.plan]?.n||'Básico');
     const expStr=u.plan_expires_at?('Vence em '+D(u.plan_expires_at)+(dd(u.plan_expires_at)<0?' (atrasado)':'')):'Sem vencimento';
-    return `<div class="ucard">
+    const isFoc=(focUid&&String(u.id)===focUid)||(focEmail&&String(u.email||'').toLowerCase()===focEmail);
+    return `<div class="ucard ${isFoc?'ucard-focus':''}" data-uid="${esc(u.id)}">
       <div class="ucard-top">
         <div class="ucard-info">
-          <b>${esc(u.nome||'Sem nome')}</b>
+          <b>${esc(u.nome||'Sem nome')}${isFoc?' <span class="ncard-pill" style="margin-left:6px;background:color-mix(in srgb,var(--pr) 22%,transparent);color:var(--pr)">Novo cadastro</span>':''}</b>
           <small>${esc(u.email||'—')}${u.whatsapp?' · 📱 '+esc(u.whatsapp):''}</small>
           <small>${isM?'Conta proprietária do app':esc(expStr)}</small>
           <div class="ucard-badges">
@@ -5694,6 +5778,13 @@ function renderAdmUsers(w){
       </div>`}
     </div>`;
   }).join(''):'<p class="mu" style="text-align:center;padding:20px 0">Nenhum usuário encontrado neste filtro.</p>'}`;
+  if(focUid||focEmail){
+    setTimeout(()=>{
+      const el=w.querySelector('.ucard.ucard-focus');
+      if(el)el.scrollIntoView({behavior:'smooth',block:'center'});
+      setTimeout(()=>{window._admFocusUid='';window._admFocusEmail=''},6500);
+    },120);
+  }
 }
 
 function openAddClientModal(){
@@ -6565,7 +6656,6 @@ function gg(authMode){
   const a=document.createElement('a');
   a.href=authUrl;
   a.target='_blank';
-  a.rel='noopener';
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -7712,6 +7802,10 @@ cfgV=function(){
     </div>
     <div class="cfg-card-body">
       ${sa?'<p class="pg" style="margin:0;font-weight:700">✓ ENFapp instalado neste aparelho</p>':window._ip?'<button class="b" onclick="inst()">Instalar ENFapp no aparelho</button>':'<small class="mu">No iPhone: Compartilhar → Adicionar à Tela de Início. No Android/PC: menu do navegador → Instalar app.</small>'}
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:10px;border-top:1px solid var(--gb);flex-wrap:wrap">
+        <div><b style="display:block;font-size:.86rem">Atualizações do ENFapp</b><small class="mu">Versão instalada: v${esc(typeof APP_VERSION!=='undefined'?APP_VERSION:'2.7.0')}</small></div>
+        <button type="button" class="b ghost" data-d="1" style="width:auto;min-height:40px;padding:8px 14px" onclick="checkAppUpdate(true)">Verificar atualizações</button>
+      </div>
       ${sb.tok?`<div style="padding-top:10px;border-top:1px solid var(--gb)"><label style="margin-top:0">Alterar senha</label><div class="row"><input id="np" type="password" placeholder="Nova senha" autocomplete="new-password"><input id="np2" type="password" placeholder="Repetir senha" autocomplete="new-password"></div><button class="b ghost" style="margin-top:8px;width:100%" onclick="cps()">Atualizar senha</button></div>`:''}
     </div>
     <div class="cfg-card-foot">
@@ -9398,7 +9492,7 @@ async function fetchLatestRelease(){
   const c=SB();
   if(!c.url||!c.key)return null;
   const base=c.url.replace(/\/$/,'');
-  const h={apikey:c.key,Authorization:'Bearer '+(c.tok||c.key)};
+  const h={apikey:c.key,Authorization:'Bearer '+c.key};
   try{
     const r=await fetch(base+'/rest/v1/app_releases?active=eq.true&order=created_at.desc&limit=1',{headers:h,cache:'no-store'});
     if(r.ok){
@@ -9608,11 +9702,30 @@ async function admPublishRelease(){
 (function initAppUpdater(){
   try{
     const qs=new URLSearchParams(location.search);
-    if(qs.has('v')&&qs.has('t')){
-      qs.delete('v');qs.delete('t');
+    let dirty=false;
+    if(qs.has('v')&&qs.has('t')){qs.delete('v');qs.delete('t');dirty=true}
+    if(qs.has('open_user')){
+      const ou=(qs.get('open_user')||'').trim();
+      if(ou)window._pendingOpenUserId=ou;
+      qs.delete('open_user');dirty=true;
+    }
+    if(dirty){
       history.replaceState(null,'',location.pathname+(qs.toString()?'?'+qs.toString():'')+location.hash);
     }
   }catch(e){}
+  if(window._pendingOpenUserId){
+    let tries=0;
+    const pollOpen=setInterval(()=>{
+      tries++;
+      if(!window._pendingOpenUserId||tries>25){clearInterval(pollOpen);return}
+      if(ld()&&typeof isMaster==='function'&&isMaster()&&typeof openNotifUser==='function'){
+        const uid=window._pendingOpenUserId;
+        window._pendingOpenUserId='';
+        clearInterval(pollOpen);
+        openNotifUser('',uid,'');
+      }
+    },320);
+  }
   try{
     if('serviceWorker' in navigator){
       navigator.serviceWorker.ready.then(reg=>{

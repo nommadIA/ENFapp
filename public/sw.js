@@ -1,4 +1,4 @@
-const V='enfapp-v8',SH=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'],REM_CACHE='enfapp-reminders-v2';
+const V='enfapp-v10',SH=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'],REM_CACHE='enfapp-reminders-v2';
 self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(SH)).catch(()=>{}).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==V&&x!==REM_CACHE).map(x=>caches.delete(x)))).then(()=>self.clients.claim()))});
 self.addEventListener('fetch',e=>{
@@ -66,7 +66,7 @@ async function checkBgReminders(){
           icon:'/icon-192.png',
           badge:'/icon-192.png',
           tag:'enfapp-prev-'+tmrStr,
-          renotify:true,
+          renotify:false,
           silent,
           requireInteraction:true,
           vibrate:[300,120,300,120,300],
@@ -141,7 +141,7 @@ self.addEventListener('push',e=>{
     icon:'/icon-192.png',
     badge:'/icon-192.png',
     tag:d.tag||'enfapp',
-    renotify:true,
+    renotify:d.renotify!==false,
     silent:d.silent===true,
     requireInteraction:d.requireInteraction!==false,
     vibrate:d.vibrate||[300,120,300,120,300],

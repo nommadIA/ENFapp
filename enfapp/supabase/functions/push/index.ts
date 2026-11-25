@@ -29,17 +29,20 @@ async function sendUser(c: any, uid: string, payload: Record<string, unknown>) {
   const a = admin();
   webpush.setVapidDetails(c.subject, c.public_key, c.private_key);
   const { data: subs } = await a.from("push_subscriptions").select("*").eq("user_id", uid);
-  let n = 0;
-  for (const s of subs ?? []) {
+  const outcomes = await Promise.all((subs ?? []).map(async (s: any) => {
     try {
       await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify(payload));
-      n++;
+      return "sent";
     } catch (e: any) {
-      if (e?.statusCode === 404 || e?.statusCode === 410) await a.from("push_subscriptions").delete().eq("id", s.id);
-      else console.warn("web push delivery failed", Number(e?.statusCode) || "unknown");
+      if (e?.statusCode === 404 || e?.statusCode === 410) {
+        await a.from("push_subscriptions").delete().eq("id", s.id);
+        return "expired";
+      }
+      console.warn("web push delivery failed", Number(e?.statusCode) || "unknown");
+      return "retry";
     }
-  }
-  return n;
+  }));
+  return { sent: outcomes.filter((x) => x === "sent").length, retry: outcomes.includes("retry") };
 }
 
 async function run(c: any) {
@@ -54,8 +57,9 @@ async function run(c: any) {
     const { data } = await a.from("app_data").select("key,value").eq("user_id", uid).in("key", ["enf_plantoes", "enf_receber", "enf_contas", "enf_meds", "enf_medlog", "enf_recAc", "enf_prev_ntf", "enf_snd_on"]);
     const value = (k: string) => (data ?? []).find((r: any) => r.key === k)?.value;
     const get = (k: string) => (value(k) as any[]) ?? [];
-    const prevEnabled = value("enf_prev_ntf") !== 0;
-    const soundEnabled = value("enf_snd_on") !== 0;
+    const isOff = (v: unknown) => v === 0 || v === false || v === "0" || v === "false";
+    const prevEnabled = !isOff(value("enf_prev_ntf"));
+    const soundEnabled = !isOff(value("enf_snd_on"));
     const items: { ref: string; title: string; body: string; extra?: Record<string, unknown> }[] = [];
     const plantoes = get("enf_plantoes");
     if (prevEnabled) {
@@ -128,9 +132,9 @@ async function run(c: any) {
     for (const it of items) {
       const { error } = await a.from("push_sent").insert({ user_id: uid, ref: it.ref });
       if (error) continue;
-      const delivered = await sendUser(c, uid, { title: it.title, body: it.body, tag: it.ref, url: "/", silent: !soundEnabled, ...(it.extra ?? {}) });
-      if (!delivered) await a.from("push_sent").delete().eq("user_id", uid).eq("ref", it.ref);
-      total += delivered;
+      const delivery = await sendUser(c, uid, { title: it.title, body: it.body, tag: it.ref, url: "/", silent: !soundEnabled, renotify: false, vibrate: [300, 120, 300, 120, 300], ...(it.extra ?? {}) });
+      if (!delivery.sent || delivery.retry) await a.from("push_sent").delete().eq("user_id", uid).eq("ref", it.ref);
+      total += delivery.sent;
     }
   }
   await a.from("push_sent").delete().lt("sent_at", new Date(Date.now() - 30 * 864e5).toISOString());
@@ -149,6 +153,9 @@ Deno.serve(async (req) => {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return J({ error: "não autenticado" }, 401);
   if (act === "key") return J({ key: c.public_key });
-  if (act === "test") return J({ enviadas: await sendUser(c, user.id, { title: "ENFapp", body: "Notificação de teste: tudo certo! 🔔", tag: "teste", url: "/" }) });
+  if (act === "test") {
+    const delivery = await sendUser(c, user.id, { title: "ENFapp", body: "Notificação de teste: tudo certo! 🔔", tag: `teste-${Date.now()}`, url: "/", silent: false, renotify: false, vibrate: [300, 120, 300, 120, 300] });
+    return J({ enviadas: delivery.sent, falhasTemporarias: delivery.retry });
+  }
   return J({ error: "ação inválida" }, 400);
 });

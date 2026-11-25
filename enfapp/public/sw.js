@@ -1,4 +1,4 @@
-const V='enfapp-v10',SH=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'],REM_CACHE='enfapp-reminders-v2';
+const V='enfapp-v11',SH=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'],REM_CACHE='enfapp-reminders-v2';
 self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(SH)).catch(()=>{}).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==V&&x!==REM_CACHE).map(x=>caches.delete(x)))).then(()=>self.clients.claim()))});
 self.addEventListener('fetch',e=>{
@@ -67,9 +67,8 @@ async function checkBgReminders(){
           badge:'/icon-192.png',
           tag:'enfapp-prev-'+tmrStr,
           renotify:false,
-          silent,
+          ...(silent?{silent:true}:{silent:false,vibrate:[300,120,300,120,300]}),
           requireInteraction:true,
-          vibrate:[300,120,300,120,300],
           data:{url:'/?tab=plantoes&pdate='+tmrStr}
         });
       }
@@ -87,9 +86,8 @@ async function checkBgReminders(){
             badge:'/icon-192.png',
             tag:'enfapp-rec-'+s.id,
             renotify:true,
-            silent,
+            ...(silent?{silent:true}:{silent:false,vibrate:[280,120,280]}),
             requireInteraction:true,
-            vibrate:[280,120,280],
             data:{url:'/?tab=plantoes&pdate='+(s.data||'')}
           });
         }
@@ -114,9 +112,8 @@ async function checkBgReminders(){
               badge:'/icon-192.png',
               tag:'md|'+mk,
               renotify:true,
-              silent,
+              ...(silent?{silent:true}:{silent:false,vibrate:[400,200,400,200,400]}),
               requireInteraction:true,
-              vibrate:[400,200,400,200,400],
               data:{url:'/?med=1'}
             });
           }
@@ -136,15 +133,15 @@ self.addEventListener('periodicsync',e=>{
 });
 self.addEventListener('push',e=>{
   let d={};try{d=e.data?e.data.json():{}}catch(x){d={body:e.data&&e.data.text()}}
+  const silent=d.silent===true;
   e.waitUntil(self.registration.showNotification(d.title||'ENFapp',{
     body:d.body||'',
     icon:'/icon-192.png',
     badge:'/icon-192.png',
     tag:d.tag||'enfapp',
     renotify:d.renotify!==false,
-    silent:d.silent===true,
+    ...(silent?{silent:true}:{silent:false,vibrate:d.vibrate||[300,120,300,120,300]}),
     requireInteraction:d.requireInteraction!==false,
-    vibrate:d.vibrate||[300,120,300,120,300],
     data:{url:d.url||'/'}
   }));
 });

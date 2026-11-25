@@ -51,16 +51,49 @@ Deno.serve(async (req) => {
   try {
     const payload = await req.json().catch(() => ({}));
     const eventType = String(payload.type || payload.topic || "").toLowerCase();
-    if (eventType && eventType !== "payment" && !eventType.startsWith("payment.")) return json({ received: true, ignored: true });
+    const isPayment = !eventType || eventType === "payment" || eventType.startsWith("payment.");
+    const isPreapproval = eventType === "subscription_preapproval" || eventType === "preapproval" || eventType.startsWith("subscription_preapproval.");
+    if (!isPayment && !isPreapproval) return json({ received: true, ignored: true });
     const queryId = new URL(req.url).searchParams.get("data.id") || "";
     const bodyId = String(payload.data?.id || "");
     if (queryId && bodyId && queryId.toLowerCase() !== bodyId.toLowerCase()) return json({ error: "id de notificação divergente" }, 400);
-    const paymentId = queryId || bodyId;
+    const dataId = queryId || bodyId;
     const signature = req.headers.get("x-signature") || "";
     const requestId = req.headers.get("x-request-id") || "";
-    if (!await validSignature(webhookSecret, signature, requestId, paymentId)) return json({ error: "assinatura inválida" }, 401);
+    if (!await validSignature(webhookSecret, signature, requestId, dataId)) return json({ error: "assinatura inválida" }, 401);
 
-    const paymentResponse = await fetch(`https://api.mercadopago.com/v1/payments/${encodeURIComponent(paymentId)}`, {
+    const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+
+    if (isPreapproval) {
+      const preResponse = await fetch(`https://api.mercadopago.com/preapproval/${encodeURIComponent(dataId)}`, {
+        headers: { Authorization: `Bearer ${mpToken}` },
+      });
+      const pre = await preResponse.json().catch(() => ({}));
+      if (!preResponse.ok) {
+        console.error("Mercado Pago preapproval lookup failed", preResponse.status, pre);
+        return json({ error: "não foi possível consultar a assinatura" }, 502);
+      }
+      const orderId = String(pre.external_reference || "");
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(orderId)) {
+        return json({ received: true, ignored: true });
+      }
+      const subStatus = String(pre.status || "").toLowerCase();
+      if (!["authorized", "cancelled", "paused"].includes(subStatus)) {
+        return json({ received: true, ignored: true });
+      }
+      const { error } = await supabase.rpc("apply_mercadopago_subscription", {
+        p_order_id: orderId,
+        p_preapproval_id: String(pre.id || dataId),
+        p_sub_status: subStatus,
+      });
+      if (error) {
+        console.error("apply_mercadopago_subscription failed", error.message);
+        return json({ error: "não foi possível atualizar a assinatura" }, 500);
+      }
+      return json({ received: true });
+    }
+
+    const paymentResponse = await fetch(`https://api.mercadopago.com/v1/payments/${encodeURIComponent(dataId)}`, {
       headers: { Authorization: `Bearer ${mpToken}` },
     });
     const payment = await paymentResponse.json().catch(() => ({}));
@@ -70,7 +103,7 @@ Deno.serve(async (req) => {
     }
     const orderId = String(payment.external_reference || "");
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(orderId)) {
-      console.error("Mercado Pago payment without a valid ENFapp order", paymentId);
+      console.error("Mercado Pago payment without a valid ENFapp order", dataId);
       return json({ received: true, ignored: true });
     }
 
@@ -78,10 +111,9 @@ Deno.serve(async (req) => {
     const status = rawStatus === "in_mediation" ? "in_process" : rawStatus === "authorized" ? "pending" : rawStatus;
     const allowed = ["approved", "pending", "in_process", "rejected", "cancelled", "refunded", "charged_back"];
     if (!allowed.includes(status)) return json({ received: true, ignored: true });
-    const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
     const { error } = await supabase.rpc("apply_mercadopago_payment", {
       p_order_id: orderId,
-      p_payment_id: String(payment.id || paymentId),
+      p_payment_id: String(payment.id || dataId),
       p_payment_status: status,
       p_amount: Number(payment.transaction_amount),
       p_currency: String(payment.currency_id || ""),

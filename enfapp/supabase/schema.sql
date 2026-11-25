@@ -46,6 +46,8 @@ alter table public.profiles add column if not exists plan_expires_at date;
 alter table public.profiles add column if not exists admin_notes text;
 alter table public.profiles add column if not exists trial_started_at timestamptz;
 alter table public.profiles add column if not exists plan_source_order_id uuid;
+alter table public.profiles add column if not exists auto_renew boolean not null default false;
+alter table public.profiles add column if not exists subscription_id text;
 alter table public.profiles add column if not exists updated_at timestamptz default now();
 update public.profiles set trial_started_at = coalesce(plan_expires_at::timestamptz, created_at, now())
   where status = 'teste' and trial_started_at is null;
@@ -84,6 +86,30 @@ end $$;
 revoke execute on function public.set_plan(uuid,text) from public, anon;
 grant execute on function public.set_plan(uuid,text) to authenticated;
 
+-- Configurações globais e Logos Oficiais (ADM Master salva e todos os usuários visualizam)
+create table if not exists public.app_config (
+  key text primary key,
+  value jsonb not null default '{}'::jsonb,
+  updated_by uuid default auth.uid(),
+  updated_at timestamptz not null default now()
+);
+alter table public.app_config enable row level security;
+drop policy if exists "app_config logos publico" on public.app_config;
+create policy "app_config logos publico" on public.app_config for select to anon, authenticated using (key = 'brand_logos');
+drop policy if exists "app_config planos auth" on public.app_config;
+create policy "app_config planos auth" on public.app_config for select to authenticated using (key = 'plans_config' or public.is_master());
+drop policy if exists "app_config master insere" on public.app_config;
+create policy "app_config master insere" on public.app_config for insert to authenticated with check (public.is_master());
+drop policy if exists "app_config master atualiza" on public.app_config;
+create policy "app_config master atualiza" on public.app_config for update to authenticated using (public.is_master()) with check (public.is_master());
+drop policy if exists "app_config master apaga" on public.app_config;
+create policy "app_config master apaga" on public.app_config for delete to authenticated using (public.is_master());
+grant select on public.app_config to anon, authenticated;
+grant insert, update, delete on public.app_config to authenticated;
+do $$ begin
+  alter publication supabase_realtime add table public.app_config;
+exception when duplicate_object then null; end $$;
+
 -- Limites e valores por plano (Relatorios, Produtividade e Precos configurados pelo Master)
 create table if not exists public.plan_limits (
   plan text primary key check (plan in ('basico','profissional','premium')),
@@ -118,16 +144,18 @@ insert into public.plan_limits (plan, rel, fichas, price_monthly, price_annual, 
   ('premium',null,null,49.90,499.00,7,'VIP · Tudo liberado','Acesso ilimitado, Mercado completo e backup na nuvem')
 on conflict (plan) do nothing;
 
--- Compras avulsas (Checkout Pro): o plano só é liberado pelo webhook após aprovação.
+-- Compras avulsas (Checkout Pro) e Assinaturas recorrentes no cartão (Preapproval)
 create table if not exists public.payment_orders (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   plan text not null check (plan in ('basico','profissional','premium')),
   cycle text not null check (cycle in ('mensal','anual')),
+  billing_mode text not null default 'avulso' check (billing_mode in ('avulso','recorrente')),
   amount numeric(10,2) not null check (amount > 0),
   currency text not null default 'BRL' check (currency = 'BRL'),
   status text not null default 'pending' check (status in ('pending','approved','rejected','cancelled','refunded','charged_back','in_process')),
   preference_id text unique,
+  preapproval_id text unique,
   payment_id text unique,
   payment_status text,
   status_detail text,
@@ -136,6 +164,8 @@ create table if not exists public.payment_orders (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.payment_orders add column if not exists billing_mode text not null default 'avulso';
+alter table public.payment_orders add column if not exists preapproval_id text;
 alter table public.payment_orders enable row level security;
 drop policy if exists "pedido le dono" on public.payment_orders;
 create policy "pedido le dono" on public.payment_orders for select to authenticated using (user_id = auth.uid() or public.is_master());
@@ -209,7 +239,7 @@ create or replace function public.apply_mercadopago_payment(
   p_order_id uuid, p_payment_id text, p_payment_status text,
   p_amount numeric, p_currency text, p_status_detail text default null
 ) returns void language plpgsql security definer set search_path=public as $$
-declare o public.payment_orders%rowtype; exp date; pl_name text;
+declare o public.payment_orders%rowtype; exp date; pl_name text; is_rec boolean;
 begin
   if p_payment_status not in ('approved','pending','in_process','rejected','cancelled','refunded','charged_back') then
     raise exception 'status de pagamento invalido';
@@ -217,25 +247,31 @@ begin
   if p_payment_id is null or length(p_payment_id) = 0 then raise exception 'id do pagamento ausente'; end if;
   select * into o from public.payment_orders where id = p_order_id for update;
   if not found then raise exception 'pedido nao encontrado'; end if;
+  is_rec := coalesce(o.billing_mode, 'avulso') = 'recorrente';
 
   if p_payment_status = 'approved' then
     if p_amount is distinct from o.amount or p_currency is distinct from o.currency then
       raise exception 'valor ou moeda do pagamento nao confere';
     end if;
     if o.status = 'approved' and o.payment_id = p_payment_id then return; end if;
-    if o.status = 'approved' then raise exception 'pedido ja aprovado com outro pagamento'; end if;
+    if o.status = 'approved' and not is_rec then raise exception 'pedido ja aprovado com outro pagamento'; end if;
     exp := current_date + case when o.cycle = 'anual' then 365 else 30 end;
     pl_name := case o.plan when 'basico' then 'Básico' when 'profissional' then 'Profissional' else 'Premium' end;
     update public.profiles set plan = o.plan, status = 'ativo', plan_expires_at = exp,
-      plan_source_order_id = o.id, updated_at = now() where id = o.user_id and role <> 'master';
+      plan_source_order_id = o.id, auto_renew = is_rec,
+      subscription_id = case when is_rec then coalesce(o.preapproval_id, subscription_id) else null end,
+      updated_at = now() where id = o.user_id and role <> 'master';
     if not found then raise exception 'perfil do comprador nao encontrado'; end if;
     update public.payment_orders set status = 'approved', payment_id = p_payment_id,
       payment_status = p_payment_status, status_detail = p_status_detail,
       paid_at = coalesce(paid_at, now()), expires_at = exp, updated_at = now() where id = o.id;
     insert into public.user_notifications (user_id, kind, title, body, amount, due_date, created_by)
-    values (o.user_id, 'sucesso', 'Pagamento aprovado',
+    values (o.user_id, 'sucesso',
+      case when is_rec then 'Assinatura renovada' else 'Pagamento aprovado' end,
       'Seu pagamento foi confirmado pelo Mercado Pago. O plano ' || pl_name ||
-      ' está ativo até ' || to_char(exp,'DD/MM/YYYY') || '.', o.amount, exp, o.user_id);
+      ' está ativo até ' || to_char(exp,'DD/MM/YYYY') ||
+      case when is_rec then ' (renovação automática no cartão).' else '.' end,
+      o.amount, exp, o.user_id);
   else
     update public.payment_orders set
       status = case when p_payment_status = 'in_process' then 'in_process' else p_payment_status end,
@@ -245,7 +281,7 @@ begin
     if p_payment_status in ('refunded','charged_back') then
       update public.payment_orders set status = p_payment_status, payment_status = p_payment_status,
         status_detail = p_status_detail, updated_at = now() where id = o.id;
-      update public.profiles set plan = 'basico', status = 'vencido',
+      update public.profiles set plan = 'basico', status = 'vencido', auto_renew = false,
         plan_expires_at = current_date - 1, plan_source_order_id = null, updated_at = now()
         where id = o.user_id and plan_source_order_id = o.id;
     end if;
@@ -253,6 +289,41 @@ begin
 end $$;
 revoke execute on function public.apply_mercadopago_payment(uuid,text,text,numeric,text,text) from public, anon, authenticated;
 grant execute on function public.apply_mercadopago_payment(uuid,text,text,numeric,text,text) to service_role;
+
+-- RPC exclusivo do backend para sincronizar assinaturas recorrentes (cartão de crédito) do Mercado Pago.
+create or replace function public.apply_mercadopago_subscription(
+  p_order_id uuid, p_preapproval_id text, p_sub_status text
+) returns void language plpgsql security definer set search_path=public as $$
+declare o public.payment_orders%rowtype; exp date; pl_name text;
+begin
+  select * into o from public.payment_orders where id = p_order_id for update;
+  if not found then raise exception 'pedido nao encontrado'; end if;
+  pl_name := case o.plan when 'basico' then 'Básico' when 'profissional' then 'Profissional' else 'Premium' end;
+
+  if p_sub_status = 'authorized' then
+    exp := current_date + case when o.cycle = 'anual' then 365 else 30 end;
+    update public.profiles set plan = o.plan, status = 'ativo', plan_expires_at = exp,
+      plan_source_order_id = o.id, auto_renew = true, subscription_id = p_preapproval_id,
+      updated_at = now() where id = o.user_id and role <> 'master';
+    update public.payment_orders set status = 'approved', billing_mode = 'recorrente',
+      preapproval_id = coalesce(preapproval_id, p_preapproval_id),
+      payment_status = p_sub_status, paid_at = coalesce(paid_at, now()),
+      expires_at = exp, updated_at = now() where id = o.id;
+    insert into public.user_notifications (user_id, kind, title, body, amount, due_date, created_by)
+    values (o.user_id, 'sucesso', 'Assinatura automática ativada',
+      'Sua renovação automática no cartão para o plano ' || pl_name ||
+      ' foi confirmada no Mercado Pago. Próximo ciclo até ' || to_char(exp,'DD/MM/YYYY') || '.',
+      o.amount, exp, o.user_id);
+  elsif p_sub_status in ('cancelled','paused') then
+    update public.payment_orders set
+      status = case when status = 'approved' then status else 'cancelled' end,
+      payment_status = p_sub_status, updated_at = now() where id = o.id;
+    update public.profiles set auto_renew = false, updated_at = now()
+      where id = o.user_id and subscription_id = p_preapproval_id;
+  end if;
+end $$;
+revoke execute on function public.apply_mercadopago_subscription(uuid,text,text) from public, anon, authenticated;
+grant execute on function public.apply_mercadopago_subscription(uuid,text,text) to service_role;
 
 -- RPC do usuário: somente teste gratuito. Planos pagos são liberados pelo webhook.
 create or replace function public.user_change_plan(p_plan text, p_cycle text default 'mensal', p_trial boolean default false) returns void language plpgsql security definer set search_path=public as $$

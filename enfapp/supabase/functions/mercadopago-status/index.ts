@@ -35,9 +35,16 @@ Deno.serve(async (req) => {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(orderId)) {
       return json({ error: "pedido inválido" }, 400);
     }
-    const { data, error } = await supabase.from("payment_orders")
-      .select("id,plan,cycle,status,amount,currency,expires_at")
+    let { data, error } = await supabase.from("payment_orders")
+      .select("id,plan,cycle,billing_mode,status,amount,currency,expires_at")
       .eq("id", orderId).eq("user_id", user.id).maybeSingle();
+    if (error && String(error.message || "").includes("billing_mode")) {
+      const fb = await supabase.from("payment_orders")
+        .select("id,plan,cycle,status,amount,currency,expires_at")
+        .eq("id", orderId).eq("user_id", user.id).maybeSingle();
+      data = fb.data ? { ...fb.data, billing_mode: "avulso" } : null;
+      error = fb.error;
+    }
     if (error || !data) return json({ error: "pedido não encontrado" }, 404);
     return json({ order: data });
   } catch (error) {

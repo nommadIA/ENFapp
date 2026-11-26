@@ -86,7 +86,7 @@ end $$;
 revoke execute on function public.set_plan(uuid,text) from public, anon;
 grant execute on function public.set_plan(uuid,text) to authenticated;
 
--- Configurações globais e Logos Oficiais (ADM Master salva e todos os usuários visualizam)
+-- Configurações globais, Logos Oficiais, GIFs dos Planos e Imagens dos Cards Iniciais (ADM Master salva e todos os usuários visualizam)
 create table if not exists public.app_config (
   key text primary key,
   value jsonb not null default '{}'::jsonb,
@@ -95,9 +95,11 @@ create table if not exists public.app_config (
 );
 alter table public.app_config enable row level security;
 drop policy if exists "app_config logos publico" on public.app_config;
-create policy "app_config logos publico" on public.app_config for select to anon, authenticated using (key = 'brand_logos');
+create policy "app_config logos publico" on public.app_config for select to anon, authenticated
+  using (key in ('brand_logos', 'plan_card_visuals', 'home_kpi_visuals', 'checkout_visuals', 'shift_card_visuals', 'app_release'));
 drop policy if exists "app_config planos auth" on public.app_config;
-create policy "app_config planos auth" on public.app_config for select to authenticated using (key = 'plans_config' or public.is_master());
+create policy "app_config planos auth" on public.app_config for select to authenticated
+  using (key in ('plans_config', 'plan_card_visuals', 'home_kpi_visuals', 'checkout_visuals', 'shift_card_visuals', 'app_release') or public.is_master());
 drop policy if exists "app_config master insere" on public.app_config;
 create policy "app_config master insere" on public.app_config for insert to authenticated with check (public.is_master());
 drop policy if exists "app_config master atualiza" on public.app_config;
@@ -106,6 +108,15 @@ drop policy if exists "app_config master apaga" on public.app_config;
 create policy "app_config master apaga" on public.app_config for delete to authenticated using (public.is_master());
 grant select on public.app_config to anon, authenticated;
 grant insert, update, delete on public.app_config to authenticated;
+insert into public.app_config (key, value)
+values ('home_kpi_visuals', '{"receber":{"img":"","pos":"center center"},"recebido":{"img":"","pos":"center center"},"abertos":{"img":"","pos":"center center"},"contas":{"img":"","pos":"center center"}}'::jsonb)
+on conflict (key) do nothing;
+insert into public.app_config (key, value)
+values ('checkout_visuals', '{"banner":"","mpLogo":""}'::jsonb)
+on conflict (key) do nothing;
+insert into public.app_config (key, value)
+values ('shift_card_visuals', '{"std":{"img":"","pos":"center center"},"extra":{"img":"","pos":"center center"}}'::jsonb)
+on conflict (key) do nothing;
 do $$ begin
   alter publication supabase_realtime add table public.app_config;
 exception when duplicate_object then null; end $$;

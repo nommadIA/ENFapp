@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="enfGlow" cx="50%" cy="50%" r="48%">
+      <stop offset="0%" stop-color="#a6ff2e" stop-opacity="0.42"/>
+      <stop offset="65%" stop-color="#a6ff2e" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#0c0e0f" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="enfCross" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#b8ff3b"/>
+      <stop offset="100%" stop-color="#84f01c"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#0c0e0f"/>
+  <circle cx="256" cy="256" r="215" fill="url(#enfGlow)"/>
+  <path
+    d="M212 118h88a22 22 0 0 1 22 22v66h66a22 22 0 0 1 22 22v88a22 22 0 0 1-22 22h-66v66a22 22 0 0 1-22 22h-88a22 22 0 0 1-22-22v-66h-66a22 22 0 0 1-22-22v-88a22 22 0 0 1 22-22h66v-66a22 22 0 0 1 22-22z"
+    fill="url(#enfCross)"
+  />
+</svg>

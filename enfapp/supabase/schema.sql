@@ -96,10 +96,10 @@ create table if not exists public.app_config (
 alter table public.app_config enable row level security;
 drop policy if exists "app_config logos publico" on public.app_config;
 create policy "app_config logos publico" on public.app_config for select to anon, authenticated
-  using (key in ('brand_logos', 'plan_card_visuals', 'home_kpi_visuals', 'checkout_visuals', 'shift_card_visuals', 'app_release'));
+  using (key in ('brand_logos', 'plan_card_visuals', 'home_kpi_visuals', 'checkout_visuals', 'shift_card_visuals', 'relatorio_banner_visual', 'produtividade_banner_visual', 'financeiro_banner_visual', 'app_release'));
 drop policy if exists "app_config planos auth" on public.app_config;
 create policy "app_config planos auth" on public.app_config for select to authenticated
-  using (key in ('plans_config', 'plan_card_visuals', 'home_kpi_visuals', 'checkout_visuals', 'shift_card_visuals', 'app_release') or public.is_master());
+  using (key in ('plans_config', 'plan_card_visuals', 'home_kpi_visuals', 'checkout_visuals', 'shift_card_visuals', 'relatorio_banner_visual', 'produtividade_banner_visual', 'financeiro_banner_visual', 'app_release') or public.is_master());
 drop policy if exists "app_config master insere" on public.app_config;
 create policy "app_config master insere" on public.app_config for insert to authenticated with check (public.is_master());
 drop policy if exists "app_config master atualiza" on public.app_config;
@@ -117,8 +117,39 @@ on conflict (key) do nothing;
 insert into public.app_config (key, value)
 values ('shift_card_visuals', '{"std":{"img":"","pos":"center center"},"extra":{"img":"","pos":"center center"}}'::jsonb)
 on conflict (key) do nothing;
+insert into public.app_config (key, value)
+values ('relatorio_banner_visual', '{"img":""}'::jsonb)
+on conflict (key) do nothing;
+insert into public.app_config (key, value)
+values ('produtividade_banner_visual', '{"img":""}'::jsonb)
+on conflict (key) do nothing;
+insert into public.app_config (key, value)
+values ('financeiro_banner_visual', '{"img":""}'::jsonb)
+on conflict (key) do nothing;
 do $$ begin
   alter publication supabase_realtime add table public.app_config;
+exception when duplicate_object then null; end $$;
+
+-- Atualizações do App (histórico de versões + alerta em tempo real)
+create table if not exists public.app_releases (
+  id uuid primary key default gen_random_uuid(),
+  version text not null unique,
+  title text not null default 'Nova atualização disponível',
+  notes text not null default '',
+  force_update boolean not null default false,
+  active boolean not null default true,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+alter table public.app_releases enable row level security;
+drop policy if exists "app_releases leitura publica" on public.app_releases;
+create policy "app_releases leitura publica" on public.app_releases for select to anon, authenticated using (active = true or public.is_master());
+drop policy if exists "app_releases master grava" on public.app_releases;
+create policy "app_releases master grava" on public.app_releases for all to authenticated using (public.is_master()) with check (public.is_master());
+grant select on public.app_releases to anon, authenticated;
+grant insert, update, delete on public.app_releases to authenticated;
+do $$ begin
+  alter publication supabase_realtime add table public.app_releases;
 exception when duplicate_object then null; end $$;
 
 -- Limites e valores por plano (Relatorios, Produtividade e Precos configurados pelo Master)
@@ -202,8 +233,10 @@ create table if not exists public.user_notifications (
   amount numeric(10,2),
   due_date date,
   read_at timestamptz,
+  target_user_id uuid,
   created_by uuid default auth.uid(),
   created_at timestamptz default now());
+alter table public.user_notifications add column if not exists target_user_id uuid;
 alter table public.user_notifications enable row level security;
 drop policy if exists "notifs le" on public.user_notifications;
 create policy "notifs le" on public.user_notifications for select to authenticated using (user_id = auth.uid() or public.is_master());
@@ -244,6 +277,23 @@ begin
 end $$;
 revoke execute on function public.admin_manage_user(uuid,text,text,date,text,text,text,text,text,numeric) from public, anon;
 grant execute on function public.admin_manage_user(uuid,text,text,date,text,text,text,text,text,numeric) to authenticated;
+
+-- RPC do Master: excluir conta de usuário comum (não permite excluir conta master)
+create or replace function public.admin_delete_user(p_id uuid) returns void language plpgsql security definer set search_path=public,auth as $$
+declare r text;
+begin
+  if not public.is_master() then raise exception 'sem permissao'; end if;
+  if p_id = auth.uid() then raise exception 'nao e possivel excluir a propria conta master'; end if;
+  select role into r from public.profiles where id = p_id;
+  if r = 'master' then raise exception 'nao e possivel excluir conta master'; end if;
+  delete from public.push_subscriptions where user_id = p_id;
+  delete from public.user_notifications where user_id = p_id;
+  delete from public.app_data where user_id = p_id;
+  delete from public.profiles where id = p_id;
+  delete from auth.users where id = p_id;
+end $$;
+revoke execute on function public.admin_delete_user(uuid) from public, anon;
+grant execute on function public.admin_delete_user(uuid) to authenticated;
 
 -- RPC exclusivo do backend para sincronizar pagamentos verificados no Mercado Pago.
 create or replace function public.apply_mercadopago_payment(
@@ -379,23 +429,114 @@ revoke execute on function public.check_limits() from public, anon, authenticate
 drop trigger if exists app_data_limites on public.app_data;
 create trigger app_data_limites before insert or update on public.app_data for each row execute function public.check_limits();
 
--- Notificacoes Push (Web Push / PWA)
+-- Notificacoes Push e Alarmes com App Fechado (Web Push VAPID + Windows/PWA/Android)
+create table if not exists public.push_config (
+  id int primary key default 1 check (id = 1),
+  subject text not null default 'mailto:suporte@enfapp.com.br',
+  public_key text,
+  private_key text,
+  cron_secret text not null default (md5(random()::text || clock_timestamp()::text) || md5(clock_timestamp()::text || random()::text)),
+  updated_at timestamptz not null default now()
+);
+alter table public.push_config enable row level security;
+revoke all on public.push_config from anon, authenticated;
+grant all on public.push_config to service_role;
+insert into public.push_config (id, subject)
+values (1, 'mailto:suporte@enfapp.com.br')
+on conflict (id) do nothing;
+
+create table if not exists public.push_sent (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  ref text not null,
+  sent_at timestamptz not null default now(),
+  primary key (user_id, ref)
+);
+create index if not exists push_sent_sent_at_idx on public.push_sent (sent_at);
+alter table public.push_sent enable row level security;
+revoke all on public.push_sent from anon, authenticated;
+grant all on public.push_sent to service_role;
+
 create table if not exists public.push_subscriptions (
   endpoint text primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
   p256dh text not null,
   auth text not null,
   tz text default 'America/Sao_Paulo',
-  updated_at timestamptz default now());
+  platform text default 'web',
+  user_agent text,
+  updated_at timestamptz default now()
+);
+alter table public.push_subscriptions add column if not exists platform text default 'web';
+alter table public.push_subscriptions add column if not exists user_agent text;
+create index if not exists push_subscriptions_user_idx on public.push_subscriptions (user_id);
 alter table public.push_subscriptions enable row level security;
 drop policy if exists "push dono" on public.push_subscriptions;
 create policy "push dono" on public.push_subscriptions for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
-create or replace function public.claim_push(p_endpoint text, p_p256dh text, p_auth text, p_tz text default 'America/Sao_Paulo') returns void language plpgsql security definer set search_path=public as $$
+
+drop function if exists public.claim_push(text,text,text,text);
+create or replace function public.claim_push(
+  p_endpoint text,
+  p_p256dh text,
+  p_auth text,
+  p_tz text default 'America/Sao_Paulo',
+  p_platform text default null,
+  p_ua text default null
+) returns void language plpgsql security definer set search_path=public as $$
 begin
   if auth.uid() is null then raise exception 'nao autenticado'; end if;
-  insert into public.push_subscriptions (endpoint, user_id, p256dh, auth, tz, updated_at)
-  values (p_endpoint, auth.uid(), p_p256dh, p_auth, coalesce(p_tz, 'America/Sao_Paulo'), now())
-  on conflict (endpoint) do update set user_id = auth.uid(), p256dh = excluded.p256dh, auth = excluded.auth, tz = excluded.tz, updated_at = now();
+  insert into public.push_subscriptions (endpoint, user_id, p256dh, auth, tz, platform, user_agent, updated_at)
+  values (
+    p_endpoint,
+    auth.uid(),
+    p_p256dh,
+    p_auth,
+    coalesce(nullif(p_tz, ''), 'America/Sao_Paulo'),
+    coalesce(nullif(p_platform, ''), 'web'),
+    left(coalesce(p_ua, ''), 240),
+    now()
+  )
+  on conflict (endpoint) do update set
+    user_id = auth.uid(),
+    p256dh = excluded.p256dh,
+    auth = excluded.auth,
+    tz = excluded.tz,
+    platform = coalesce(excluded.platform, public.push_subscriptions.platform),
+    user_agent = coalesce(excluded.user_agent, public.push_subscriptions.user_agent),
+    updated_at = now();
 end $$;
-revoke execute on function public.claim_push(text,text,text,text) from public, anon;
-grant execute on function public.claim_push(text,text,text,text) to authenticated;
+revoke execute on function public.claim_push(text,text,text,text,text,text) from public, anon;
+grant execute on function public.claim_push(text,text,text,text,text,text) to authenticated;
+
+-- Agendador automático (pg_cron + pg_net): dispara alarmes e notificações a cada 1 minuto mesmo com o app fechado
+create extension if not exists pg_cron with schema extensions;
+create extension if not exists pg_net with schema extensions;
+
+create or replace function public.trigger_enfapp_push_run() returns void language plpgsql security definer set search_path=public,extensions as $$
+declare
+  v_secret text;
+begin
+  select cron_secret into v_secret from public.push_config where id = 1;
+  if v_secret is null then return; end if;
+  perform net.http_post(
+    url := 'https://crlqrglvhvgdpmvoqrgp.supabase.co/functions/v1/push?action=run',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'x-cron-secret', v_secret
+    ),
+    body := '{}'::jsonb
+  );
+end $$;
+revoke execute on function public.trigger_enfapp_push_run() from public, anon, authenticated;
+
+do $$
+begin
+  if exists (select 1 from cron.job where jobname = 'enfapp-push-every-minute') then
+    perform cron.unschedule('enfapp-push-every-minute');
+  end if;
+  perform cron.schedule(
+    'enfapp-push-every-minute',
+    '* * * * *',
+    $cron$select public.trigger_enfapp_push_run();$cron$
+  );
+end $$;
+

@@ -38,6 +38,15 @@ export default defineConfig(() => {
               res.end('/* HMR disabled */\n');
               return;
             }
+            if (urlPath === '/manifest.webmanifest') {
+              res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+            } else if (urlPath === '/sw.js') {
+              res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+              res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+              res.setHeader('Service-Worker-Allowed', '/');
+            } else if (urlPath === '/.well-known/assetlinks.json') {
+              res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            }
             if (urlPath === '/auth/callback' || urlPath === '/auth/callback/') {
               const cbFile = path.resolve(__dirname, 'public/auth/callback/index.html');
               if (fs.existsSync(cbFile)) {

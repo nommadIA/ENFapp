@@ -29,6 +29,40 @@ async function startServer() {
   const app = express();
   app.use(express.json({limit: '12mb'}));
 
+  // CORS para chamadas /api/* vindas do APK Android (Capacitor https://localhost) ou PWA
+  app.use('/api', (req, res, next) => {
+    const origin = String(req.headers.origin || '');
+    const allowedOrigin =
+      /^https?:\/\/localhost(?::\d+)?$/i.test(origin) ||
+      /^capacitor:\/\/localhost$/i.test(origin) ||
+      /^ionic:\/\/localhost$/i.test(origin);
+    if (allowedOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    }
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
+    next();
+  });
+
+  // Headers obrigatórios de PWA e Android App Links (Windows, Android, iOS)
+  app.use((req, res, next) => {
+    if (req.path === '/manifest.webmanifest') {
+      res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+    } else if (req.path === '/sw.js') {
+      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Service-Worker-Allowed', '/');
+    } else if (req.path === '/.well-known/assetlinks.json') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    }
+    next();
+  });
+
   const brandFile = path.resolve(__dirname, 'brand-logos.json');
   app.get('/api/brand-logos', (_req, res) => {
     try {
@@ -77,10 +111,10 @@ async function startServer() {
         return;
       }
 
-      const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/, '');
+      const cleanBase64 = imageBase64.replace(/^data:[^,]+,/i, '').replace(/\s+/g, '').trim();
       const safeMime =
         typeof mimeType === 'string' && mimeType.startsWith('image/')
-          ? mimeType
+          ? mimeType.split(';')[0].trim().toLowerCase()
           : 'image/jpeg';
 
       const ai = getAiClient();
@@ -170,7 +204,121 @@ async function startServer() {
       const msg =
         err instanceof Error ? err.message : 'Erro ao analisar a imagem do produto.';
       console.error('[scan-product]', msg);
-      res.status(500).json({error: msg});
+      res.status(500).json({error: 'Não foi possível analisar a imagem do produto agora. Tente novamente.'});
+    }
+  });
+
+  // API: Transcrição Inteligente de Áudio para Evolução/Anotação de Enfermagem (PT-BR)
+  app.post('/api/transcribe-audio', async (req, res) => {
+    try {
+      const {audioBase64, mimeType, context} = req.body || {};
+      if (!audioBase64 || typeof audioBase64 !== 'string') {
+        res.status(400).json({error: 'Áudio não recebido para transcrição.'});
+        return;
+      }
+
+      // Remove qualquer prefixo data URL (inclusive com parâmetros como ";codecs=opus;base64,")
+      const cleanBase64 = audioBase64
+        .replace(/^data:[^,]+,/i, '')
+        .replace(/\s+/g, '')
+        .trim();
+
+      if (!cleanBase64 || cleanBase64.length < 64) {
+        res.status(400).json({error: 'Áudio muito curto. Fale um pouco mais perto do microfone.'});
+        return;
+      }
+
+      if (!/^[A-Za-z0-9+/=_-]+$/.test(cleanBase64)) {
+        res.status(400).json({error: 'Formato de áudio inválido. Tente gravar novamente.'});
+        return;
+      }
+
+      const dataMimeMatch = /^data:([^;,]+)/i.exec(audioBase64);
+      const rawMime = (
+        typeof mimeType === 'string' && mimeType.trim()
+          ? mimeType
+          : dataMimeMatch?.[1] || ''
+      )
+        .split(';')[0]
+        .trim()
+        .toLowerCase();
+
+      const allowedMimes = new Set([
+        'audio/webm',
+        'audio/mp4',
+        'audio/m4a',
+        'audio/x-m4a',
+        'audio/mpeg',
+        'audio/mp3',
+        'audio/ogg',
+        'audio/wav',
+        'audio/aac',
+        'audio/flac',
+      ]);
+      const safeMime = allowedMimes.has(rawMime)
+        ? rawMime === 'audio/x-m4a' || rawMime === 'audio/m4a'
+          ? 'audio/mp4'
+          : rawMime === 'audio/mp3'
+            ? 'audio/mpeg'
+            : rawMime
+        : 'audio/webm';
+
+      const ctxHint =
+        typeof context === 'string' && context.trim()
+          ? ` Contexto: ${context.trim().slice(0, 120)}.`
+          : '';
+
+      const promptText =
+        'Transcreva integralmente este áudio falado em português do Brasil (pt-BR) por um profissional de enfermagem.' +
+        ctxHint +
+        ' Aplique rigorosamente a norma ortográfica brasileira vigente, com todos os acentos gráficos, cedilha, crase, pontuação natural (vírgulas, pontos finais, dois-pontos e parágrafos quando apropriado) e grafia correta de termos clínicos e de enfermagem (ex.: PA, FC, FR, SpO2, Tax, HGT, glicemia, decúbito, curativo, administração, medicação, diurese, evacuação, paciente orientado, eupneico, afebril).' +
+        ' Não invente informações que não foram ditas. Se não houver fala audível, retorne uma string vazia.' +
+        ' Retorne APENAS o texto final transcrito, sem títulos, sem aspas, sem prefixos e sem comentários.';
+
+      const ai = getAiClient();
+      const parts = [
+        {
+          inlineData: {
+            mimeType: safeMime,
+            data: cleanBase64,
+          },
+        },
+        {text: promptText},
+      ];
+
+      let response;
+      try {
+        response = await ai.models.generateContent({
+          model: 'gemini-3.5-transcribe',
+          contents: {parts},
+        });
+      } catch (primaryErr) {
+        console.warn('[transcribe-audio] fallback to gemini-4-hydrogen:', primaryErr instanceof Error ? primaryErr.message : primaryErr);
+        response = await ai.models.generateContent({
+          model: 'gemini-4-hydrogen',
+          contents: {parts},
+        });
+      }
+
+      const text = String(response.text || '')
+        .replace(/^["“”'\s]+|["“”'\s]+$/g, '')
+        .trim();
+
+      if (!text) {
+        res.status(422).json({
+          error: 'Não foi possível identificar fala no áudio. Tente falar um pouco mais próximo do microfone.',
+        });
+        return;
+      }
+
+      res.json({text});
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : 'Erro ao transcrever o áudio.';
+      console.error('[transcribe-audio]', msg);
+      res.status(500).json({
+        error: 'Não foi possível transcrever o áudio agora. Verifique sua conexão e tente gravar novamente.',
+      });
     }
   });
 

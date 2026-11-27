@@ -1,0 +1,46 @@
+{
+	"appId": "br.com.enfapp.app",
+	"appName": "ENFapp",
+	"webDir": "dist",
+	"backgroundColor": "#0c0e0f",
+	"server": {
+		"androidScheme": "https",
+		"cleartext": false,
+		"allowNavigation": [
+			"*.supabase.co",
+			"*.mercadopago.com",
+			"*.mercadopago.com.br",
+			"*.mercadolibre.com",
+			"accounts.google.com",
+			"*.googleapis.com",
+			"*.run.app",
+			"*.netlify.app"
+		]
+	},
+	"android": {
+		"backgroundColor": "#0c0e0f",
+		"allowMixedContent": false,
+		"captureInput": true,
+		"webContentsDebuggingEnabled": false
+	},
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 1200,
+			"launchAutoHide": true,
+			"backgroundColor": "#0c0e0f",
+			"androidSplashResourceName": "splash",
+			"androidScaleType": "CENTER_CROP",
+			"showSpinner": false
+		},
+		"StatusBar": {
+			"overlaysWebView": true,
+			"style": "DARK",
+			"backgroundColor": "#0c0e0f"
+		},
+		"LocalNotifications": {
+			"smallIcon": "ic_launcher",
+			"iconColor": "#4CC5B1",
+			"sound": "default"
+		}
+	}
+}
